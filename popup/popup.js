@@ -5,7 +5,7 @@ const optionsBtn = document.getElementById("openOptions");
 optimizeBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) {
-    chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" });
+    chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" }).catch(() => {});
     window.close();
   }
 });
