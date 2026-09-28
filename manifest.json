@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "UPO \u2014 Universal Prompt Optimizer (Gemini)",
-  "description": "Optimize selected text with Google Gemini and replace it in-place. Trigger via Ctrl+Q or context menu.",
-  "version": "2.0.0",
+  "name": "UPO — Universal Prompt Optimizer (Gemini)",
+  "description": "Optimize selected text in editable fields with your own Google Gemini key, using a shortcut, context menu or toolbar button.",
+  "version": "2.1.0",
   "author": "Arnab Mandal (hello@arnabmandal.com)",
   "icons": {
     "16": "icons/icon16.png",
@@ -12,14 +12,9 @@
   },
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting",
-    "contextMenus",
-    "tabs",
-    "notifications"
+    "contextMenus"
   ],
   "host_permissions": [
-    "<all_urls>",
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
@@ -27,14 +22,14 @@
     "type": "module"
   },
   "action": {
-    "default_title": "UPO \u2014 Universal Prompt Optimizer",
+    "default_title": "UPO — Universal Prompt Optimizer",
     "default_popup": "popup/popup.html"
   },
   "commands": {
     "optimize-selection": {
       "suggested_key": {
-        "default": "Ctrl+Q",
-        "mac": "Command+Q"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
       },
       "description": "Optimize selected text with Gemini"
     }
