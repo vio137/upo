@@ -43,56 +43,90 @@ function statusDone() {
   }, 650);
 }
 
+// Capture the selection when the command arrives. Chrome's toolbar and context menu can
+// move focus; the last focused editable field is retained only for that interaction.
+let lastEditable = null;
+document.addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement && /^(text|search|url|email|tel)$/i.test(target.type))) {
+    lastEditable = target;
+  }
+}, true);
+
 function getSelectionData() {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const text = sel.toString();
-  if (!text || !text.trim()) return null;
-  const range = sel.getRangeAt(0);
-  return { sel, range, text };
+  const active = document.activeElement;
+  const isField = element => element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLInputElement && /^(text|search|url|email|tel)$/i.test(element.type));
+  const captureField = field => {
+    if (!isField(field) || !field.isConnected || field.disabled || field.readOnly ||
+        typeof field.selectionStart !== "number" || field.selectionEnd <= field.selectionStart) return null;
+    const start = field.selectionStart, end = field.selectionEnd;
+    const text = field.value.slice(start, end);
+    return text.trim() ? { kind: "field", field, start, end, text, original: field.value } : null;
+  };
+  if (isField(active)) return captureField(active);
+  const selection = window.getSelection();
+  if (selection?.rangeCount && selection.toString().trim()) {
+    const range = selection.getRangeAt(0).cloneRange();
+    const container = range.commonAncestorContainer;
+    const editable = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+    if (editable?.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]'))
+      return { kind: "range", range, text: selection.toString() };
+    return null; // Never send arbitrary page text.
+  }
+  return captureField(lastEditable); // Toolbar may have moved focus from a selected field.
+}
+
+function replaceSelection(selection, optimized) {
+  if (selection.kind === "field") {
+    const { field, start, end, text, original } = selection;
+    if (!field.isConnected || field.disabled || field.readOnly ||
+        field.value !== original || field.value.slice(start, end) !== text) return false;
+    field.focus();
+    field.setRangeText(optimized, start, end, "end");
+    field.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: optimized }));
+    return true;
+  }
+  const { range, text } = selection;
+  if (!range.startContainer.isConnected || range.toString() !== text) return false;
+  const editable = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+    ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+  if (!editable?.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')) return false;
+  range.deleteContents();
+  const node = document.createTextNode(optimized);
+  range.insertNode(node);
+  const after = document.createRange();
+  after.setStartAfter(node);
+  after.collapse(true);
+  const current = window.getSelection();
+  current.removeAllRanges();
+  current.addRange(after);
+  editable.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: optimized }));
+  return true;
 }
 
 async function optimizeNow() {
-  const s = getSelectionData();
-  if (!s) {
-    toast("Select text to optimize.");
-    return;
-  }
-
+  const selection = getSelectionData();
+  if (!selection) { toast("Select text in an editable field first."); return; }
+  if (selection.text.length > 12000) { toast("Select at most 12,000 characters."); return; }
   setCursorLoading(true);
   statusStart();
   toast("Optimizing text…");
-
   try {
-    const resp = await chrome.runtime.sendMessage({
-      type: "UPO_CALL_GEMINI",
-      text: s.text
-    });
-
-    if (!resp?.ok) {
-      throw new Error(resp?.error || "Unknown error");
+    const response = await chrome.runtime.sendMessage({ type: "UPO_CALL_GEMINI", text: selection.text });
+    if (!response?.ok) throw new Error(response?.error || "Request failed");
+    const optimized = response.optimized?.trim();
+    if (!optimized) throw new Error("Gemini returned no text");
+    if (!replaceSelection(selection, optimized)) {
+      toast("Text changed while optimizing. Nothing was replaced.", 3600);
+      return;
     }
-
-    const optimized = resp.optimized.trim();
-    const tn = document.createTextNode(optimized);
-
-    // Replace selected range
-    s.range.deleteContents();
-    s.range.insertNode(tn);
-
-    // Place caret after insertion
-    s.sel.removeAllRanges();
-    const after = document.createRange();
-    after.setStartAfter(tn);
-    after.setEndAfter(tn);
-    s.sel.addRange(after);
-
-    statusDone();
-    toast("Prompt optimization complete.", 1500);
-  } catch (e) {
-    statusDone();
-    toast(`Error: ${e.message}`, 2600);
+    toast("Prompt optimized.", 1500);
+  } catch (error) {
+    toast(`Error: ${error.message}`, 3600);
   } finally {
+    statusDone();
     setCursorLoading(false);
   }
 }
