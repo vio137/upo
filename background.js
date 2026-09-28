@@ -15,7 +15,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     const existing = await chrome.storage.sync.get(["geminiModel", "geminiPrompt", "onboarded"]);
     if (!existing.geminiModel) {
       await chrome.storage.sync.set({
-        geminiModel: "gemini-2.5-pro",
+        geminiModel: "gemini-2.5-flash",
         geminiPrompt: "",
         onboarded: false
       });
@@ -28,7 +28,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Context menu trigger
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "upo-optimize-selection" && tab?.id) {
-    chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" });
+    chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" }).catch(() => {});
   }
 });
 
@@ -36,13 +36,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "optimize-selection") {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" });
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "UPO_OPTIMIZE_SELECTION" }).catch(() => {});
   }
 });
 
 // Message router for API calls and utility actions
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "UPO_CALL_GEMINI") {
+    if (!sender.tab || !/^https?:\/\//.test(sender.url || "") || typeof msg.text !== "string" || !msg.text.trim() || msg.text.length > 12000) {
+      sendResponse({ ok: false, error: "Select up to 12,000 characters of text in an editable field." });
+      return false;
+    }
     (async () => {
       try {
         const optimized = await callGemini(msg.text);
@@ -55,6 +59,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "UPO_TEST_GEMINI") {
+    if (sender.tab) { sendResponse({ ok: false, error: "Unavailable from a web page." }); return false; }
     (async () => {
       try {
         const testText = "Improve: write a friendly email asking for Friday off.";
@@ -67,11 +72,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.type === "UPO_OPEN_SHORTCUTS") {
+  if (!sender.tab && msg?.type === "UPO_OPEN_SHORTCUTS") {
     chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
   }
 
-  if (msg?.type === "UPO_OPEN_API_KEYS") {
+  if (!sender.tab && msg?.type === "UPO_OPEN_API_KEYS") {
     chrome.tabs.create({ url: "https://aistudio.google.com/app/api-keys" });
   }
 });
@@ -80,7 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function callGemini(userText) {
   const {
     geminiApiKey = "",
-    geminiModel = "gemini-2.5-pro",
+    geminiModel = "gemini-2.5-flash",
     geminiPrompt = ""
   } = await chrome.storage.sync.get(["geminiApiKey", "geminiModel", "geminiPrompt"]);
 
@@ -221,7 +226,7 @@ async function callGemini(userText) {
     systemInstruction: { parts: [{ text: systemInstruction }] }
   };
 
-  let attempts = 3;
+  let attempts = 2;
   let wait = 800;
   let lastErr;
 
@@ -236,7 +241,8 @@ async function callGemini(userText) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = json?.error?.message || `${res.status} ${res.statusText}`;
-        throw new Error(msg);
+        if (res.status !== 429 && res.status < 500) throw new Error(msg);
+        throw new Error(`Temporary Gemini error: ${msg}`);
       }
 
       const out =
