@@ -14,7 +14,7 @@ const btnAPIKeys = el("btnAPIKeys");
 const btnAPIKeys2 = el("btnAPIKeys2");
 
 async function load() {
-  const { geminiApiKey = "", geminiModel = "gemini-2.5-pro", geminiPrompt = "" } =
+  const { geminiApiKey = "", geminiModel = "gemini-2.5-flash", geminiPrompt = "" } =
     await chrome.storage.sync.get(["geminiApiKey", "geminiModel", "geminiPrompt"]);
   apiKey.value = geminiApiKey;
   model.value = geminiModel;
@@ -46,7 +46,7 @@ form.addEventListener("submit", async (e) => {
 btnClear.addEventListener("click", async () => {
   await chrome.storage.sync.remove(["geminiApiKey", "geminiModel", "geminiPrompt"]);
   apiKey.value = "";
-  model.value = "gemini-2.5-pro";
+  model.value = "gemini-2.5-flash";
   systemPrompt.value = "";
   status("Cleared.");
   sampleOut.classList.add("hidden");
